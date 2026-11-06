@@ -1,0 +1,49 @@
+{
+  "name": "signatureapi-swp-node-starter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SWP/1 signing worker starter for SignatureAPI qualified signatures (Node.js)",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/server.ts",
+    "dev": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env --watch src/server.ts",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "tsc --noEmit",
+    "test": "NODE_OPTIONS=--disable-warning=ExperimentalWarning vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.1.5",
+    "@noble/curves": "1.9.7",
+    "@peculiar/asn1-cms": "2.11.0",
+    "@peculiar/asn1-schema": "2.11.0",
+    "hono": "4.13.13"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.2",
+    "@peculiar/asn1-x509": "2.11.0",
+    "@peculiar/x509": "2.2.0",
+    "@types/node": "24.19.2",
+    "reflect-metadata": "0.2.2",
+    "typescript": "6.0.3",
+    "vitest": "5.0.5"
+  },
+  "overrides": {
+    "@peculiar/asn1-asym-key": "2.11.0",
+    "@peculiar/asn1-cms": "2.11.0",
+    "@peculiar/asn1-csr": "2.11.0",
+    "@peculiar/asn1-ecc": "2.11.0",
+    "@peculiar/asn1-pfx": "2.11.0",
+    "@peculiar/asn1-pkcs8": "2.11.0",
+    "@peculiar/asn1-pkcs9": "2.11.0",
+    "@peculiar/asn1-rsa": "2.11.0",
+    "@peculiar/asn1-schema": "2.11.0",
+    "@peculiar/asn1-x509": "2.11.0",
+    "@peculiar/asn1-x509-attr": "2.11.0",
+    "@peculiar/asn1-x509-post-quantum": "2.11.0"
+  }
+}

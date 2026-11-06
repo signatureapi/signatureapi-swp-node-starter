@@ -1,0 +1,9 @@
+node_modules
+data
+coverage
+test
+.env
+.git
+.github
+*.sqlite
+*.sqlite-*

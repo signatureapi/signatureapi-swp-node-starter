@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.1"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  conformance:
+    # Runs the shared black-box SWP/1 tester (swp-workers-examples/shared/conformance) against this
+    # worker with PROVIDER=byo. The workspace repo is private: the job needs the SWP_WORKSPACE_TOKEN
+    # secret (read access to signatureapi/swp-workers-examples) and skips with a warning without it.
+    runs-on: ubuntu-latest
+    needs: check
+    env:
+      TOKEN: swpct_ciConformance0000000000000000000
+    steps:
+      - id: workspace
+        env:
+          SWP_WORKSPACE_TOKEN: ${{ secrets.SWP_WORKSPACE_TOKEN }}
+        run: |
+          if [ -z "$SWP_WORKSPACE_TOKEN" ]; then
+            echo "::warning::SWP_WORKSPACE_TOKEN is not set; the conformance tester did NOT run."
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.workspace.outputs.available == 'true'
+      - uses: actions/checkout@v4
+        if: steps.workspace.outputs.available == 'true'
+        with:
+          repository: signatureapi/swp-workers-examples
+          token: ${{ secrets.SWP_WORKSPACE_TOKEN }}
+          path: swp-workers-examples
+          submodules: false
+      - uses: actions/setup-node@v4
+        if: steps.workspace.outputs.available == 'true'
+        with:
+          node-version: "24.14.1"
+          cache: npm
+      - if: steps.workspace.outputs.available == 'true'
+        run: npm ci --ignore-scripts --omit=dev
+      - name: Start the worker (PROVIDER=byo, throwaway P-256 certificate)
+        if: steps.workspace.outputs.available == 'true'
+        run: |
+          mkdir -p "$RUNNER_TEMP/certs"
+          openssl ecparam -name prime256v1 -genkey -noout -out "$RUNNER_TEMP/certs/ec.pem"
+          openssl pkcs8 -topk8 -nocrypt -in "$RUNNER_TEMP/certs/ec.pem" -out "$RUNNER_TEMP/certs/key.pem"
+          openssl req -new -x509 -key "$RUNNER_TEMP/certs/key.pem" -out "$RUNNER_TEMP/certs/cert.pem" -days 1 -subj "/CN=SWP CI"
+          PROVIDER=byo PORT=8080 PUBLIC_URL=http://127.0.0.1:8080 \
+            PLATFORM_JWKS_URL=http://127.0.0.1:4455/jwks SIGNATUREAPI_CONNECTION_TOKENS="$TOKEN" \
+            DATABASE_PATH="$RUNNER_TEMP/worker.sqlite" \
+            BYO_CERTIFICATES_PEM_FILE="$RUNNER_TEMP/certs/cert.pem" BYO_PRIVATE_KEY_PEM_FILE="$RUNNER_TEMP/certs/key.pem" \
+            nohup npm start > "$RUNNER_TEMP/worker.log" 2>&1 &
+          timeout 30 bash -c 'until curl -sf http://127.0.0.1:8080/v1/health; do sleep 1; done'
+      - name: Run the conformance tester
+        if: steps.workspace.outputs.available == 'true'
+        run: node swp-workers-examples/shared/conformance/src/cli.ts --worker http://127.0.0.1:8080 --connection-token "$TOKEN" --jwks-port 4455
+      - if: failure()
+        run: cat "$RUNNER_TEMP/worker.log" || true
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t swp-worker .
+      - name: Health check from the container
+        run: |
+          openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out key.pem
+          openssl req -new -x509 -key key.pem -out cert.pem -days 1 -subj "/CN=SWP CI"
+          docker run -d --name worker -e PROVIDER=byo -e PUBLIC_URL=http://127.0.0.1:8080 \
+            -e SIGNATUREAPI_CONNECTION_TOKENS=swpct_ci -e BYO_CERTIFICATES_PEM="$(cat cert.pem)" \
+            -e BYO_PRIVATE_KEY_PEM="$(cat key.pem)" swp-worker
+          timeout 60 bash -c 'until [ "$(docker inspect -f {{.State.Health.Status}} worker)" = healthy ]; do sleep 2; done'
+          docker exec worker node -e 'fetch("http://127.0.0.1:8080/v1/health").then((r) => r.text()).then(console.log)'
